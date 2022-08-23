@@ -103,7 +103,7 @@ defmodule NetworkMonitor do
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, :pid, pid}, state = %NetworkMonitor{subscribers: subscribers}) do
+  def handle_info({:DOWN, _ref, :process, pid}, state = %NetworkMonitor{subscribers: subscribers}) do
     subscribers = MapSet.delete(subscribers, pid)
     {:noreply, %NetworkMonitor{state | subscribers: subscribers}}
   end
