@@ -63,10 +63,13 @@ defmodule NetworkMonitor do
 
   The sockets associated local interface is retrieved using
   `:inet.sockname(socket)`
+
+  Instead of `:inet` another module name can be specified such
+  as `:ssl`
   """
-  def close_on_down(socket) do
-    with {:ok, {addr, _ip}} <- :inet.sockname(socket) do
-      on_down_apply(addr, :inet, :close, socket)
+  def close_on_down(socket, module \\ :inet) do
+    with {:ok, {addr, _ip}} <- module.sockname(socket) do
+      on_down_apply(addr, module, :close, socket)
     end
   end
 
