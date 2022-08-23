@@ -6,7 +6,7 @@
 
 This will print a short messages on the console every time when a network interfaces is coming up or going down:
 
-```
+```elixir
 dump = fn dump -> 
   receive do
     {:interface_down, ifs} -> IO.puts("interfaces went down #{inspect ifs}")
@@ -23,7 +23,7 @@ end)
 
 ## Disconnect socket example
 
-```
+```elixir
 {:ok, port} = :gen_tcp.connect('www.google.com', 80)
 NetworkMonitor.close_on_down(port)
 # now when the network cable is unplugged the port
