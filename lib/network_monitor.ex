@@ -78,7 +78,7 @@ defmodule NetworkMonitor do
   given in with `addr` is going down. `addr` should be a member of
   `interfaces()` or the mfa will be executed immediately.
   """
-  def on_down_apply(addr, m, f, a) when is_atom(m) and is_atom(f) do
+  def on_down_apply(addr, m, f, a) when is_tuple(addr) and is_atom(m) and is_atom(f) do
     GenServer.call(__MODULE__, {:on_down_apply, addr, {m, f, List.wrap(a)}})
   end
 
@@ -88,7 +88,7 @@ defmodule NetworkMonitor do
         _from,
         state = %NetworkMonitor{on_down: on_down, interfaces: interfaces}
       ) do
-    if Map.has_key?(interfaces, addr) do
+    if MapSet.member?(interfaces, addr) do
       on_down =
         Map.update(on_down, addr, MapSet.new([mfa]), fn on_downs ->
           MapSet.put(on_downs, mfa)
