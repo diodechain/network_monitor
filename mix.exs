@@ -1,7 +1,7 @@
 defmodule NetworkMonitor.MixProject do
   use Mix.Project
 
-  @version "1.1.1"
+  @version "1.1.2"
   @name "NetworkMonitor"
   @url "https://github.com/diodechain/network_monitor"
   @maintainers ["Dominic Letz"]

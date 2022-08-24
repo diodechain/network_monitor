@@ -16,18 +16,20 @@ defmodule NetworkMonitor do
 
   @app :network_monitor
   @enforce_keys [:intervall, :timer, :interfaces, :subscribers, :on_down]
-  defstruct [:intervall, :timer, :interfaces, :subscribers, :on_down]
+  defstruct [:intervall, :timer, :interfaces, :known_interfaces, :subscribers, :on_down]
 
   @impl true
   def start(:normal, _opts) do
     intervall = Application.get_env(@app, :intervall, 5_000)
+    interfaces = interfaces()
 
     GenServer.start_link(
       __MODULE__,
       %NetworkMonitor{
         timer: nil,
         intervall: intervall,
-        interfaces: interfaces(),
+        interfaces: interfaces,
+        known_interfaces: interfaces,
         subscribers: MapSet.new(),
         on_down: %{}
       },
@@ -86,9 +88,18 @@ defmodule NetworkMonitor do
   def handle_call(
         {:on_down_apply, addr, mfa},
         _from,
-        state = %NetworkMonitor{on_down: on_down, interfaces: interfaces}
+        state = %NetworkMonitor{
+          on_down: on_down,
+          interfaces: interfaces,
+          known_interfaces: known_interfaces
+        }
       ) do
-    if MapSet.member?(interfaces, addr) do
+    # The logic here is that we will consider
+    # 1) interfaces we have seen as "up"
+    # 2) and interfaces we have never seen
+    # This fixes platform (android/ios atm) where :net.getifaddrs() returns {:error, :enotsup}
+
+    if MapSet.member?(interfaces, addr) or not MapSet.member?(known_interfaces, addr) do
       on_down =
         Map.update(on_down, addr, MapSet.new([mfa]), fn on_downs ->
           MapSet.put(on_downs, mfa)
@@ -111,23 +122,38 @@ defmodule NetworkMonitor do
     {:noreply, %NetworkMonitor{state | subscribers: subscribers}}
   end
 
-  def handle_info(:check, state = %NetworkMonitor{interfaces: old_interfaces, on_down: on_downs}) do
+  def handle_info(
+        :check,
+        state = %NetworkMonitor{
+          interfaces: old_interfaces,
+          known_interfaces: known_interfaces,
+          on_down: on_downs
+        }
+      ) do
     new_interfaces = interfaces()
 
-    MapSet.difference(old_interfaces, new_interfaces)
-    |> MapSet.to_list()
-    |> handle_lost_interfaces(state)
-    |> Enum.each(fn addr ->
-      for mfa <- Map.get(on_downs, addr, []) do
-        exec_mfa(addr, mfa)
+    known_interfaces =
+      if MapSet.equal?(new_interfaces, old_interfaces) do
+        known_interfaces
+      else
+        MapSet.difference(old_interfaces, new_interfaces)
+        |> MapSet.to_list()
+        |> handle_lost_interfaces(state)
+        |> Enum.each(fn addr ->
+          for mfa <- Map.get(on_downs, addr, []) do
+            exec_mfa(addr, mfa)
+          end
+        end)
+
+        MapSet.difference(new_interfaces, old_interfaces)
+        |> MapSet.to_list()
+        |> handle_new_interfaces(state)
+
+        MapSet.union(known_interfaces, new_interfaces)
       end
-    end)
 
-    MapSet.difference(new_interfaces, old_interfaces)
-    |> MapSet.to_list()
-    |> handle_new_interfaces(state)
-
-    {:noreply, %NetworkMonitor{state | interfaces: new_interfaces}}
+    {:noreply,
+     %NetworkMonitor{state | interfaces: new_interfaces, known_interfaces: known_interfaces}}
   end
 
   @impl true
