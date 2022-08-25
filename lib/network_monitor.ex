@@ -184,7 +184,30 @@ defmodule NetworkMonitor do
   Returns a MapSet of the currently up interfaces
   """
   def interfaces() do
-    case :net.getifaddrs() do
+    try do
+      :net.getifaddrs()
+    rescue
+      _ ->
+        with {:win32, :nt} <- :os.type(),
+             {net, 0} <- System.cmd("ipconfig", []) do
+          String.split(net, "\r\n")
+          |> Enum.filter(fn str -> String.contains?(str, "IPv4") end)
+          |> Enum.map(fn str ->
+            case Regex.run(~r/([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/, str) do
+              [_ip, a, b, c, d] ->
+                Enum.map([a, b, c, d], &String.to_integer/1)
+                |> List.to_tuple()
+
+              _ ->
+                nil
+            end
+          end)
+          |> Enum.filter(fn ip -> ip != nil end)
+        else
+          _ -> []
+        end
+    end
+    |> case do
       {:ok, ifs} -> ifs
       _ -> []
     end
