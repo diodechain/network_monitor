@@ -46,7 +46,7 @@ defmodule NetworkMonitor.MixProject do
   defp aliases() do
     [
       lint: [
-        "compile",
+        "compile --warnings-as-errors",
         "format --check-formatted",
         "credo",
         "dialyzer"
