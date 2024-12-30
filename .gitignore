@@ -1,3 +1,6 @@
+# This is a library, so no need for it's own mix.lock
+mix.lock
+
 # The directory Mix will write compiled artifacts to.
 /_build/
 
