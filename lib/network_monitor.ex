@@ -184,42 +184,47 @@ defmodule NetworkMonitor do
   Returns a MapSet of the currently up interfaces
   """
   def interfaces() do
-    try do
-      :net.getifaddrs()
-    rescue
-      _ -> windows_fallback_getifaddrs()
-    end
-    |> case do
-      {:ok, ifs} -> ifs
-      _ -> []
+    case :os.type() do
+      {:win32, :nt} -> windows_fallback_getifaddrs()
+      _ -> getifaddrs()
     end
     |> Enum.filter(fn %{flags: flags} -> Enum.member?(flags, :up) end)
     |> Enum.map(fn %{addr: %{addr: addr}} -> addr end)
     |> MapSet.new()
   end
 
-  defp windows_fallback_getifaddrs() do
-    with {:win32, :nt} <- :os.type(),
-         {net, 0} <- System.cmd("ipconfig", []) do
-      ifs =
-        String.split(net, "\r\n")
-        |> Enum.filter(fn str -> String.contains?(str, "IPv4") end)
-        |> Enum.map(fn str ->
-          case Regex.run(~r/([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/, str) do
-            [_ip, a, b, c, d] ->
-              addr =
-                Enum.map([a, b, c, d], &String.to_integer/1)
-                |> List.to_tuple()
-
-              %{addr: %{addr: addr}, flags: [:up]}
-
-            _other ->
-              nil
-          end
-        end)
-        |> Enum.filter(fn ip -> ip != nil end)
-
-      {:ok, ifs}
+  defp getifaddrs() do
+    try do
+      {:ok, ifs} = :net.getifaddrs()
+      for interf = %{addr: %{addr: _addr}, flags: _flags} <- ifs, do: interf
+    rescue
+      _ -> []
     end
+  end
+
+  defp windows_fallback_getifaddrs() do
+    windows_fallback_getifaddrs(System.cmd("ipconfig", []))
+  end
+
+  defp windows_fallback_getifaddrs({net, 0}) do
+    String.split(net, "\r\n")
+    |> Enum.filter(fn str -> String.contains?(str, "IPv4") end)
+    |> Enum.map(fn str ->
+      case Regex.run(~r/([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/, str) do
+        [_ip, a, b, c, d] ->
+          addr =
+            Enum.map([a, b, c, d], &String.to_integer/1)
+            |> List.to_tuple()
+
+          %{addr: %{addr: addr}, flags: [:up]}
+
+        _other ->
+          nil
+      end
+    end)
+  end
+
+  defp windows_fallback_getifaddrs(_error) do
+    []
   end
 end
