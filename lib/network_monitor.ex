@@ -185,7 +185,7 @@ defmodule NetworkMonitor do
   """
   def interfaces() do
     case :os.type() do
-      {:win32, :nt} -> windows_fallback_getifaddrs()
+      {:win32, :nt} -> windows_getifaddrs()
       _ -> getifaddrs()
     end
     |> Enum.filter(fn %{flags: flags} -> Enum.member?(flags, :up) end)
@@ -202,11 +202,61 @@ defmodule NetworkMonitor do
     end
   end
 
-  defp windows_fallback_getifaddrs() do
-    windows_fallback_getifaddrs(System.cmd("ipconfig", []))
+  # On Windows :net.getifaddrs/0 is unavailable. Prefer the cross-platform
+  # :inet.getifaddrs/0 (no subprocess required). Some Windows systems also
+  # don't have ipconfig.exe on PATH, so the legacy parsing fallback now
+  # resolves the binary via System32 absolute paths before giving up.
+  defp windows_getifaddrs() do
+    case inet_getifaddrs_interfaces() do
+      [] -> windows_fallback_getifaddrs()
+      ifs -> ifs
+    end
   end
 
-  defp windows_fallback_getifaddrs({net, 0}) do
+  defp inet_getifaddrs_interfaces() do
+    case :inet.getifaddrs() do
+      {:ok, ifs} ->
+        for {_name, props} <- ifs,
+            flags = Keyword.get(props, :flags, []),
+            addr <- Keyword.get_values(props, :addr),
+            is_tuple(addr) and tuple_size(addr) == 4 do
+          %{addr: %{addr: addr}, flags: flags}
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp windows_fallback_getifaddrs() do
+    case run_ipconfig() do
+      {:ok, out} -> parse_ipconfig(out)
+      :error -> []
+    end
+  end
+
+  defp run_ipconfig() do
+    Enum.find_value(ipconfig_candidates(), :error, fn path ->
+      with exe when is_binary(exe) <- System.find_executable(path),
+           {out, 0} <- System.cmd(exe, []) do
+        {:ok, out}
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  defp ipconfig_candidates() do
+    system_root = System.get_env("SystemRoot") || System.get_env("WINDIR") || "C:\\Windows"
+
+    Enum.uniq([
+      Path.join([system_root, "System32", "ipconfig.exe"]),
+      "C:\\Windows\\System32\\ipconfig.exe",
+      "ipconfig"
+    ])
+  end
+
+  defp parse_ipconfig(net) do
     String.split(net, "\r\n")
     |> Enum.filter(fn str -> String.contains?(str, "IPv4") end)
     |> Enum.map(fn str ->
@@ -222,9 +272,5 @@ defmodule NetworkMonitor do
           nil
       end
     end)
-  end
-
-  defp windows_fallback_getifaddrs(_error) do
-    []
   end
 end
